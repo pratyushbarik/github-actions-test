@@ -23,7 +23,7 @@ jobs:
           echo "skip=true" >> "$GITHUB_OUTPUT"
           fi
       - name: create-pr
-        if: !steps.check_pr_exists.outputs.skip
+        if: '!steps.check_pr_exists.outputs.skip'
         run: |
           gh pr --repo ${{ github.repository }} \
           create --base main --head develop \
