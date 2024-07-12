@@ -4,13 +4,26 @@ on:
 
 jobs:
   create-pr-from-develop:
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
     runs-on: ubuntu-latest
     permissions:
       pull-requests: write
     steps:
+      - name: check-if-pr-exists
+        id: check_pr_exists
+        run: |
+          prs=$(gh pr list \
+          --repo ${{ github.repository }} \
+          --head 'develop' \
+          --base 'main' \
+          --json title \
+          --jq 'length')
+          if ((prs > 0)); then
+          echo "skip=true" >> "$GITHUB_OUTPUT"
+          fi
       - name: create-pr
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        if: !steps.check_pr_exists.outputs.skip
         run: |
           gh pr --repo ${{ github.repository }} \
           create --base main --head develop \
