@@ -1,0 +1,32 @@
+name: Handle PRs
+
+on:
+  pull_request:
+    types: [opened, reopened]
+    branches: [main]
+  pull_request_review:
+    types: [submitted]
+    branches: [main]
+
+jobs:
+  handle-pr:
+    runs-on: ubuntu-latest
+    permissions:
+      pull-requests: write
+    steps:
+      - name: Close Pull Request
+        if: github.event_name == 'pull_request' && github.event.pull_request.head.ref != 'develop'
+        run: |
+          gh pr --repo ${{ github.repository }} \
+            close ${{ github.event.pull_request.number }} \
+            --comment "CLOSED: PR head must be develop when the base is main"
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - name: Merge with commit
+        if: github.event_name == 'pull_request_review'
+        run: |
+          gh pr -- repo ${{ github.repository }} merge --merge ${{ github.event.pull_request.number }}
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+    
+            
