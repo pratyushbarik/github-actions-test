@@ -14,4 +14,5 @@ jobs:
         run: |
           gh pr --repo ${{ github.repository }} \
           create --base main --head develop \
-          --fill
+          --title "Sync develop to main" \
+          --description "Sync develop to main"
