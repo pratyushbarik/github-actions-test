@@ -1,0 +1,38 @@
+name: Update PR Description with Commit List
+
+on:
+  pull_request:
+    types:
+      - opened
+      - synchronize
+      - reopened
+
+env:
+  GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+jobs:
+  update-pr-description:
+    runs-on: ubuntu-latest
+    if: github.event.pull_request.base.ref == 'main' && github.event.pull_request.head.ref == 'develop'
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Get commit list
+        run: |
+          PR_NUMBER=${{ github.event.pull_request.number }}
+          COMMITS=$(gh api repos/${{ github.repository }}/pulls/$PR_NUMBER/commits --jq '.[] | "- [ ] " + .sha + " (@" + .commit.author.name + ")"')
+          echo "COMMIT_LIST<<EOF" >> $GITHUB_ENV
+          echo "$COMMITS" >> $GITHUB_ENV
+          echo "EOF" >> $GITHUB_ENV
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Update PR Description
+        run: |
+          PR_NUMBER=${{ github.event.pull_request.number }}
+          CURRENT_BODY=$(gh pr view $PR_NUMBER --json body --jq '.body')
+          UPDATED_BODY=$(echo "$CURRENT_BODY" | sed "s|#COMMIT_LIST|$COMMIT_LIST|")
+          gh pr edit $PR_NUMBER --body "$UPDATED_BODY"
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
