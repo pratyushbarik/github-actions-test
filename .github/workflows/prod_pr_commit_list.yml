@@ -26,17 +26,30 @@ jobs:
           # Fetch commit SHAs
           COMMIT_SHAS=$(git log origin/$BASE_BRANCH..origin/$HEAD_BRANCH --pretty=format:"%H")
 
-          COMMIT_LIST="### Commit List"$'\n'
+          # Get existing PR description
+          CURRENT_BODY=$(gh api repos/$REPO/pulls/$PR_NUMBER --jq '.body')
 
-          # Get commit details from GitHub API
+          # Extract existing checked state from commit list
+          declare -A CHECKED_COMMITS
+          while IFS= read -r line; do
+            if [[ "$line" =~ \-\s\[([x\s])\]\s([0-9a-f]{7}) ]]; then
+              CHECKED_COMMITS[${BASH_REMATCH[2]}]=${BASH_REMATCH[1]}
+            fi
+          done < <(echo "$CURRENT_BODY" | grep -E "^- \[[x\s]\] [0-9a-f]{7}")
+
+          # Build new commit list
+          COMMIT_LIST="### Commit List"$'\n'
           for SHA in $COMMIT_SHAS; do
             RESPONSE=$(gh api repos/$REPO/commits/$SHA)
             SHORT_SHA=$(echo "$SHA" | cut -c1-7)
             AUTHOR=$(echo "$RESPONSE" | jq -r '.author.login // .commit.author.name')
-            COMMIT_LIST="${COMMIT_LIST}- [ ] $SHORT_SHA by @$AUTHOR"$'\n'
+
+            # Preserve check state if it exists, otherwise default to unchecked
+            CHECKED_STATE=${CHECKED_COMMITS[$SHORT_SHA]:-" "}
+            COMMIT_LIST="${COMMIT_LIST}- [$CHECKED_STATE] $SHORT_SHA by @$AUTHOR"$'\n'
           done
 
-          # Save commit list to an environment variable (using printf to preserve formatting)
+          # Save commit list to an environment variable
           printf "commit_list<<EOF\n%s\nEOF\n" "$COMMIT_LIST" >> "$GITHUB_ENV"
 
       - name: Update PR description
@@ -53,7 +66,7 @@ jobs:
           # Remove old commit list if it exists
           NEW_BODY=$(echo "$CURRENT_BODY" | sed '/### Commit List/,$d')
 
-          # Append updated commit list with proper spacing
+          # Append updated commit list
           UPDATED_BODY="${NEW_BODY} ${{ env.commit_list }}"
 
           # Ensure proper newlines by using a HEREDOC
