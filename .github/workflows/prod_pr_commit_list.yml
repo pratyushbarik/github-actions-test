@@ -26,7 +26,7 @@ jobs:
           # Fetch commit SHAs
           COMMIT_SHAS=$(git log origin/$BASE_BRANCH..origin/$HEAD_BRANCH --pretty=format:"%H")
 
-          COMMIT_LIST="### Commit List\n\n"
+          COMMIT_LIST="### Commit List $'\n'"
 
           # Get commit details from GitHub API
           for SHA in $COMMIT_SHAS; do
@@ -54,7 +54,7 @@ jobs:
           NEW_BODY=$(echo "$CURRENT_BODY" | sed '/### Commit List/,$d')
 
           # Append updated commit list with proper spacing
-          UPDATED_BODY="${NEW_BODY}\n\n${{ env.commit_list }}"
+          UPDATED_BODY="${NEW_BODY} $'\n' ${{ env.commit_list }}"
 
           # Ensure proper newlines by using a HEREDOC
           gh api --method PATCH repos/$REPO/pulls/$PR_NUMBER -f body="$UPDATED_BODY"
