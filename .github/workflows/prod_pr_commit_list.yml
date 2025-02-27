@@ -1,34 +1,54 @@
-name: Update PR Description with Commits
+name: Update PR Commit List
 
 on:
   pull_request:
-    types: [opened, synchronize, reopened, edited]
+    types:
+      - opened
+      - synchronize
+      - reopened
+      - edited
 
 jobs:
   update-pr-description:
-    if: github.base_ref == 'main' && github.head_ref == 'develop'
+    if: github.event.pull_request.base.ref == 'main' && github.event.pull_request.head.ref == 'develop'
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout repository
+      - name: Checkout code
         uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
 
       - name: Get commit list
-        id: commits
         run: |
-          COMMIT_LIST=$(git log --pretty=format:'[] [%h](https://github.com/${{ github.repository }}/commit/%H) by @%an' origin/main..HEAD)
+          COMMITS=$(git log origin/main..origin/develop --pretty=format:"- [ ] [%h](https://github.com/${{ github.repository }}/commit/%H) by @%an" | tr '\n' '\n')
           echo "COMMIT_LIST<<EOF" >> $GITHUB_ENV
-          echo "$COMMIT_LIST" >> $GITHUB_ENV
+          echo "$COMMITS" >> $GITHUB_ENV
           echo "EOF" >> $GITHUB_ENV
 
       - name: Update PR description
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          PR_NUMBER=${{ github.event.pull_request.number }}
-          REPO=${{ github.repository }}
-          DESCRIPTION=$(gh pr view $PR_NUMBER --repo $REPO --json body -q .body)
-          NEW_DESCRIPTION="$DESCRIPTION\n\n### Commit List:\n${COMMIT_LIST}"
-          gh pr edit $PR_NUMBER --repo $REPO --body "$NEW_DESCRIPTION"
-        shell: bash
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            const prNumber = context.payload.pull_request.number;
+            const repo = context.repo;
+            const { data: pr } = await github.rest.pulls.get({
+              owner: repo.owner,
+              repo: repo.repo,
+              pull_number: prNumber,
+            });
+            
+            const commitSectionHeader = "### Commit List";
+            const commitList = process.env.COMMIT_LIST;
+            let newBody;
+            
+            if (pr.body.includes(commitSectionHeader)) {
+              newBody = pr.body.replace(/### Commit List[\s\S]*$/, `${commitSectionHeader}\n${commitList}`);
+            } else {
+              newBody = `${pr.body}\n\n${commitSectionHeader}\n${commitList}`;
+            }
+            
+            await github.rest.pulls.update({
+              owner: repo.owner,
+              repo: repo.repo,
+              pull_number: prNumber,
+              body: newBody,
+            });
