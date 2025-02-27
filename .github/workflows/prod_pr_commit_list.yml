@@ -33,11 +33,11 @@ jobs:
             RESPONSE=$(gh api repos/$REPO/commits/$SHA)
             SHORT_SHA=$(echo "$SHA" | cut -c1-7)
             AUTHOR=$(echo "$RESPONSE" | jq -r '.author.login // .commit.author.name')
-            COMMIT_LIST+="- [ ] $SHORT_SHA by @$AUTHOR"$'\n'
+            COMMIT_LIST="${COMMIT_LIST}- [ ] $SHORT_SHA by @$AUTHOR\n"
           done
 
-          # Save to env
-          echo -e "commit_list<<EOF\n$COMMIT_LIST\nEOF" >> $GITHUB_ENV
+          # Save to env using printf (avoiding inline \n issues)
+          printf "commit_list<<EOF\n%s\nEOF" "$COMMIT_LIST" >> "$GITHUB_ENV"
 
       - name: Update PR description
         if: github.event.pull_request.base.ref == 'main' && github.event.pull_request.head.ref == 'develop'
@@ -53,8 +53,8 @@ jobs:
           # Remove old commit list if it exists
           NEW_BODY=$(echo "$CURRENT_BODY" | sed '/### Commit List/,$d')
 
-          # Append updated commit list
-          UPDATED_BODY="${NEW_BODY}\n\n### Commit List\n${{ env.commit_list }}"
+          # Append updated commit list with a proper newline
+          UPDATED_BODY="$(printf "%s\n\n### Commit List\n\n%s" "$NEW_BODY" "${{ env.commit_list }}")"
 
           # Update PR description
           gh api --method PATCH repos/$REPO/pulls/$PR_NUMBER -f body="$UPDATED_BODY"
