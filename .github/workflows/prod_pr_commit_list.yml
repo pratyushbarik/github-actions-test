@@ -26,18 +26,18 @@ jobs:
           # Fetch commit SHAs
           COMMIT_SHAS=$(git log origin/$BASE_BRANCH..origin/$HEAD_BRANCH --pretty=format:"%H")
 
-          COMMIT_LIST=""
+          COMMIT_LIST="### Commit List\n\n"
 
-          # Get commit details from GitHub API (correct usernames)
+          # Get commit details from GitHub API
           for SHA in $COMMIT_SHAS; do
             RESPONSE=$(gh api repos/$REPO/commits/$SHA)
             SHORT_SHA=$(echo "$SHA" | cut -c1-7)
             AUTHOR=$(echo "$RESPONSE" | jq -r '.author.login // .commit.author.name')
-            COMMIT_LIST="${COMMIT_LIST}- [ ] $SHORT_SHA by @$AUTHOR\n"
+            COMMIT_LIST="${COMMIT_LIST}- [ ] $SHORT_SHA by @$AUTHOR"$'\n'
           done
 
-          # Save to env using printf (avoiding inline \n issues)
-          printf "commit_list<<EOF\n%s\nEOF" "$COMMIT_LIST" >> "$GITHUB_ENV"
+          # Save commit list to an environment variable (using printf to preserve formatting)
+          printf "commit_list<<EOF\n%s\nEOF\n" "$COMMIT_LIST" >> "$GITHUB_ENV"
 
       - name: Update PR description
         if: github.event.pull_request.base.ref == 'main' && github.event.pull_request.head.ref == 'develop'
@@ -53,8 +53,8 @@ jobs:
           # Remove old commit list if it exists
           NEW_BODY=$(echo "$CURRENT_BODY" | sed '/### Commit List/,$d')
 
-          # Append updated commit list with a proper newline
-          UPDATED_BODY="$(printf "%s\n\n### Commit List\n\n%s" "$NEW_BODY" "${{ env.commit_list }}")"
+          # Append updated commit list with proper spacing
+          UPDATED_BODY="${NEW_BODY}\n\n${{ env.commit_list }}"
 
-          # Update PR description
+          # Ensure proper newlines by using a HEREDOC
           gh api --method PATCH repos/$REPO/pulls/$PR_NUMBER -f body="$UPDATED_BODY"
