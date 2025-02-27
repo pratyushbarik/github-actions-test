@@ -15,9 +15,34 @@ jobs:
 
       - name: Get commit list
         id: commits
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          COMMIT_LIST=$(git log origin/${{ github.event.pull_request.base.ref }}..origin/${{ github.event.pull_request.head.ref }} --pretty=format:"- [ ] %h by @%an" | sed ':a;N;$!ba;s/\n/\\n/g')
-          echo "commit_list=$COMMIT_LIST" >> $GITHUB_ENV
+          BASE_BRANCH=${{ github.event.pull_request.base.ref }}
+          HEAD_BRANCH=${{ github.event.pull_request.head.ref }}
+
+          # Fetch commit history
+          COMMIT_LIST=$(git log origin/$BASE_BRANCH..origin/$HEAD_BRANCH --pretty=format:"- [ ] %h by @%an")
+
+          # Ensure newlines are preserved
+          echo -e "commit_list<<EOF\n$COMMIT_LIST\nEOF" >> $GITHUB_ENV
+
+      - name: Get GitHub usernames (Fix incorrect tagging)
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          # Fetch all contributors in the repo
+          CONTRIBUTORS=$(gh api repos/${{ github.repository }}/contributors --jq 'map({name: .login}) | from_entries')
+
+          # Replace commit author names with GitHub usernames if available
+          UPDATED_LIST=$(echo "${{ env.commit_list }}" | while read -r line; do
+            AUTHOR=$(echo "$line" | grep -oP '(?<=by @).*')
+            GITHUB_USER=$(echo "$CONTRIBUTORS" | jq -r --arg name "$AUTHOR" '.[$name] // $name')
+            echo "${line/@$AUTHOR/@$GITHUB_USER}"
+          done)
+
+          # Ensure newlines are preserved
+          echo -e "updated_commit_list<<EOF\n$UPDATED_LIST\nEOF" >> $GITHUB_ENV
 
       - name: Update PR description
         if: github.event.pull_request.base.ref == 'main' && github.event.pull_request.head.ref == 'develop'
@@ -34,7 +59,7 @@ jobs:
           NEW_BODY=$(echo "$CURRENT_BODY" | sed '/### Commit List/,$d')
 
           # Append the updated commit list
-          UPDATED_BODY="${NEW_BODY}"$'\n\n'"### Commit List"$'\n'"${{ env.commit_list }}"
+          UPDATED_BODY="${NEW_BODY}\n\n### Commit List\n${{ env.updated_commit_list }}"
 
           # Update PR description
           gh api --method PATCH repos/$REPO/pulls/$PR_NUMBER -f body="$UPDATED_BODY"
