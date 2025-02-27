@@ -1,38 +1,50 @@
-name: Update PR Description with Commit List
+name: Update PR Description
 
 on:
   pull_request:
-    types:
-      - opened
-      - synchronize
-      - reopened
-
-env:
-  GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+    types: [opened, synchronize]
 
 jobs:
   update-pr-description:
     runs-on: ubuntu-latest
-    if: github.event.pull_request.base.ref == 'main' && github.event.pull_request.head.ref == 'develop'
+
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
+      - name: Checkout repository
+        uses: actions/checkout@v3
+
+      - name: Get PR details
+        id: pr
+        uses: octokit/request-action@v2.x
+        with:
+          route: GET /repos/{owner}/{repo}/pulls/{pull_number}
+          owner: ${{ github.repository_owner }}
+          repo: ${{ github.event.repository.name }}
+          pull_number: ${{ github.event.pull_request.number }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Check if source is develop and destination is main
+        id: branch-check
+        run: |
+          if [ "${{ github.event.pull_request.head.ref }}" == "develop" ] && [ "${{ github.event.pull_request.base.ref }}" == "main" ]; then
+            echo "::set-output name=is_target_branch::true"
+          else
+            echo "::set-output name=is_target_branch::false"
+          fi
 
       - name: Get commit list
+        id: commit-list
+        if: steps.branch-check.outputs.is_target_branch == 'true'
         run: |
-          PR_NUMBER=${{ github.event.pull_request.number }}
-          COMMITS=$(gh api repos/${{ github.repository }}/pulls/$PR_NUMBER/commits --jq '.[] | "- [ ] " + .sha + " (@" + .commit.author.name + ")"')
-          echo "COMMIT_LIST<<EOF" >> $GITHUB_ENV
-          echo "$COMMITS" >> $GITHUB_ENV
-          echo "EOF" >> $GITHUB_ENV
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          commits=$(curl -s -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
+            "https://api.github.com/repos/${{ github.repository }}/pulls/${{ github.event.pull_request.number }}/commits" | \
+            jq -r '.[] | "- [ ] `\(.sha[0:7])` by @\(.commit.author.email.split("@")[0])"')
+          echo "::set-output name=commits::$commits"
 
-      - name: Update PR Description
-        run: |
-          PR_NUMBER=${{ github.event.pull_request.number }}
-          CURRENT_BODY=$(gh pr view $PR_NUMBER --json body --jq '.body')
-          UPDATED_BODY=$(echo "$CURRENT_BODY" | sed "s|#COMMIT_LIST|$COMMIT_LIST|")
-          gh pr edit $PR_NUMBER --body "$UPDATED_BODY"
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - name: Update PR description
+        if: steps.branch-check.outputs.is_target_branch == 'true' && contains(steps.pr.outputs.data.body, '#COMMIT_LIST')
+        uses: peter-evans/create-or-update-comment@v2
+        with:
+          issue-number: ${{ github.event.pull_request.number }}
+          body: |
+            ${{ replace(steps.pr.outputs.data.body, '#COMMIT_LIST', steps.commit-list.outputs.commits) }}
