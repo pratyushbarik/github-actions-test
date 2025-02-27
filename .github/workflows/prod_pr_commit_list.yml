@@ -17,7 +17,7 @@ jobs:
       - name: Get commit list
         id: commits
         run: |
-          COMMIT_LIST=$(git log --pretty=format:'- [%h](https://github.com/${{ github.repository }}/commit/%H) by @%an' origin/main..HEAD)
+          COMMIT_LIST=$(git log --pretty=format:'[] [%h](https://github.com/${{ github.repository }}/commit/%H) by @%an' origin/main..HEAD)
           echo "COMMIT_LIST<<EOF" >> $GITHUB_ENV
           echo "$COMMIT_LIST" >> $GITHUB_ENV
           echo "EOF" >> $GITHUB_ENV
