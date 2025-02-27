@@ -1,39 +1,40 @@
-name: Update PR Description with Commits
+name: Update PR Description with Commits List
 
 on:
   pull_request:
-    types:
-      - opened
-      - synchronize
+    types: [opened, synchronize]
 
 jobs:
   update-pr-description:
     runs-on: ubuntu-latest
     steps:
-      - name: Get Commit List
+      - name: Check out repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Get commit list
         id: commits
         run: |
-          COMMITS=$(gh pr view "$PR_NUMBER" --json commits -q ".commits[].oid")
-          AUTHORS=$(gh pr view "$PR_NUMBER" --json commits -q ".commits[].author.login")
-          COMMIT_LIST=""
-          INDEX=0
-          while read -r COMMIT && read -r AUTHOR <&3; do
-            COMMIT_LIST+="- [ ] [${COMMIT}](https://github.com/${{ github.repository }}/commit/${COMMIT}) by @${AUTHOR}
-"
-            ((INDEX++))
-          done <<<"$COMMITS" 3<<<"$AUTHORS"
-          echo "commit_list<<EOF" >> $GITHUB_ENV
-          echo "$COMMIT_LIST" >> $GITHUB_ENV
-          echo "EOF" >> $GITHUB_ENV
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          PR_NUMBER: ${{ github.event.pull_request.number }}
+          COMMIT_LIST=$(git log origin/${{ github.event.pull_request.base.ref }}..origin/${{ github.event.pull_request.head.ref }} --pretty=format:"- [ ] %h by @%an" | sed ':a;N;$!ba;s/\n/\\n/g')
+          echo "commit_list=$COMMIT_LIST" >> $GITHUB_ENV
 
-      - name: Update PR Description
-        run: |
-          PR_DESC=$(gh pr view "$PR_NUMBER" --json body -q .body)
-          UPDATED_DESC="${PR_DESC}\n\n### Commit List\n$commit_list"
-          gh pr edit "$PR_NUMBER" --body "$UPDATED_DESC"
+      - name: Update PR description
+        if: github.event.pull_request.base.ref == 'main' && github.event.pull_request.head.ref == 'develop'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: |
+          PR_NUMBER=${{ github.event.pull_request.number }}
+          REPO=${{ github.repository }}
+
+          # Fetch current PR description
+          CURRENT_BODY=$(gh api repos/$REPO/pulls/$PR_NUMBER --jq '.body')
+
+          # Remove existing commit list if present
+          NEW_BODY=$(echo "$CURRENT_BODY" | sed '/### Commit List/,$d')
+
+          # Append the updated commit list
+          UPDATED_BODY="${NEW_BODY}"$'\n\n'"### Commit List"$'\n'"${{ env.commit_list }}"
+
+          # Update PR description
+          gh api --method PATCH repos/$REPO/pulls/$PR_NUMBER -f body="$UPDATED_BODY"
