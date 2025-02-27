@@ -13,36 +13,31 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Get commit list
+      - name: Fetch commit list with GitHub usernames
         id: commits
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           BASE_BRANCH=${{ github.event.pull_request.base.ref }}
           HEAD_BRANCH=${{ github.event.pull_request.head.ref }}
+          REPO=${{ github.repository }}
+          PR_NUMBER=${{ github.event.pull_request.number }}
 
-          # Fetch commit history
-          COMMIT_LIST=$(git log origin/$BASE_BRANCH..origin/$HEAD_BRANCH --pretty=format:"- [ ] %h by @%an")
+          # Fetch commit SHAs
+          COMMIT_SHAS=$(git log origin/$BASE_BRANCH..origin/$HEAD_BRANCH --pretty=format:"%H")
 
-          # Ensure newlines are preserved
+          COMMIT_LIST=""
+
+          # Get commit details from GitHub API (correct usernames)
+          for SHA in $COMMIT_SHAS; do
+            RESPONSE=$(gh api repos/$REPO/commits/$SHA)
+            SHORT_SHA=$(echo "$SHA" | cut -c1-7)
+            AUTHOR=$(echo "$RESPONSE" | jq -r '.author.login // .commit.author.name')
+            COMMIT_LIST+="- [ ] $SHORT_SHA by @$AUTHOR"$'\n'
+          done
+
+          # Save to env
           echo -e "commit_list<<EOF\n$COMMIT_LIST\nEOF" >> $GITHUB_ENV
-
-      - name: Get GitHub usernames (Fix incorrect tagging)
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          # Fetch all contributors in the repo
-          CONTRIBUTORS=$(gh api repos/${{ github.repository }}/contributors --jq 'map({name: .login}) | from_entries')
-
-          # Replace commit author names with GitHub usernames if available
-          UPDATED_LIST=$(echo "${{ env.commit_list }}" | while read -r line; do
-            AUTHOR=$(echo "$line" | grep -oP '(?<=by @).*')
-            GITHUB_USER=$(echo "$CONTRIBUTORS" | jq -r --arg name "$AUTHOR" '.[$name] // $name')
-            echo "${line/@$AUTHOR/@$GITHUB_USER}"
-          done)
-
-          # Ensure newlines are preserved
-          echo -e "updated_commit_list<<EOF\n$UPDATED_LIST\nEOF" >> $GITHUB_ENV
 
       - name: Update PR description
         if: github.event.pull_request.base.ref == 'main' && github.event.pull_request.head.ref == 'develop'
@@ -55,11 +50,11 @@ jobs:
           # Fetch current PR description
           CURRENT_BODY=$(gh api repos/$REPO/pulls/$PR_NUMBER --jq '.body')
 
-          # Remove existing commit list if present
+          # Remove old commit list if it exists
           NEW_BODY=$(echo "$CURRENT_BODY" | sed '/### Commit List/,$d')
 
-          # Append the updated commit list
-          UPDATED_BODY="${NEW_BODY}\n\n### Commit List\n${{ env.updated_commit_list }}"
+          # Append updated commit list
+          UPDATED_BODY="${NEW_BODY}\n\n### Commit List\n${{ env.commit_list }}"
 
           # Update PR description
           gh api --method PATCH repos/$REPO/pulls/$PR_NUMBER -f body="$UPDATED_BODY"
