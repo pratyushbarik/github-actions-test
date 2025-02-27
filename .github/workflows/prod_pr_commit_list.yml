@@ -29,13 +29,15 @@ jobs:
           # Get existing PR description
           CURRENT_BODY=$(gh api repos/$REPO/pulls/$PR_NUMBER --jq '.body')
 
-          # Extract existing checked state from commit list
+          # Extract and preserve existing check states
           declare -A CHECKED_COMMITS
-          while IFS= read -r line; do
-            if [[ "$line" =~ \-\s\[([x\s])\]\s([0-9a-f]{7}) ]]; then
-              CHECKED_COMMITS[${BASH_REMATCH[2]}]=${BASH_REMATCH[1]}
-            fi
-          done < <(echo "$CURRENT_BODY" | grep -E "^- \[[x\s]\] [0-9a-f]{7}")
+          if [[ "$CURRENT_BODY" =~ "### Commit List" ]]; then
+            while IFS= read -r line; do
+              if [[ "$line" =~ ^- \[([x\s])\] ([0-9a-f]{7}) ]]; then
+                CHECKED_COMMITS[${BASH_REMATCH[2]}]=${BASH_REMATCH[1]}
+              fi
+            done < <(echo "$CURRENT_BODY" | awk '/### Commit List/ {flag=1; next} flag')
+          fi
 
           # Build new commit list
           COMMIT_LIST="### Commit List"$'\n'
@@ -44,7 +46,7 @@ jobs:
             SHORT_SHA=$(echo "$SHA" | cut -c1-7)
             AUTHOR=$(echo "$RESPONSE" | jq -r '.author.login // .commit.author.name')
 
-            # Preserve check state if it exists, otherwise default to unchecked
+            # Preserve check state if exists, otherwise default to unchecked
             CHECKED_STATE=${CHECKED_COMMITS[$SHORT_SHA]:-" "}
             COMMIT_LIST="${COMMIT_LIST}- [$CHECKED_STATE] $SHORT_SHA by @$AUTHOR"$'\n'
           done
@@ -67,7 +69,7 @@ jobs:
           NEW_BODY=$(echo "$CURRENT_BODY" | sed '/### Commit List/,$d')
 
           # Append updated commit list
-          UPDATED_BODY="${NEW_BODY} ${{ env.commit_list }}"
+          UPDATED_BODY="${NEW_BODY}\n\n${{ env.commit_list }}"
 
           # Ensure proper newlines by using a HEREDOC
           gh api --method PATCH repos/$REPO/pulls/$PR_NUMBER -f body="$UPDATED_BODY"
